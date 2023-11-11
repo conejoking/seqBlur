@@ -2,7 +2,7 @@
 #include <fstream>
 #include <vector>
 #include <stdint.h>
-#include <cmath>
+#include <cmath>// needed to gaussian blur 
 
 #pragma pack(push, 1) // Ensure structure alignment
 struct BMPHeader {
@@ -65,14 +65,14 @@ Pixel gaussianBlur(const std::vector<std::vector<Pixel>>& image, int x, int y, f
     return blurredPixel;
 }
 
-void applyMediumBlur(std::vector<std::vector<Pixel>>& image, int radius) {
-    //const int radius = 3;  // Radius of the medium blur filter
+void applyGaussianBlur(std::vector<std::vector<Pixel>>& image, int sigma) {
+    //const int sigma = 3;  // sigma of the medium blur filter
 
     std::vector<std::vector<Pixel>> blurredImage = image;
 
     for (int x = 0; x < image.size(); ++x) {
         for (int y = 0; y < image[x].size(); ++y) {
-            blurredImage[x][y] = gaussianBlur(image, x, y, radius);
+            blurredImage[x][y] = gaussianBlur(image, x, y, sigma);
         }
     }
 
@@ -81,13 +81,13 @@ void applyMediumBlur(std::vector<std::vector<Pixel>>& image, int radius) {
 
 int main() {
     std::string inputFilePath, outputFilePath;
-    float radius;
+    float sigma;
 
     std::cout << "Enter the input BMP image file path: ";
     std::cin >> inputFilePath;
 
-    std::cout << "Enter radius: ";
-    std::cin >> radius;
+    std::cout << "Enter sigma: ";
+    std::cin >> sigma;
 
     std::cout << "Enter the output BMP image file path: ";
     std::cin >> outputFilePath;
@@ -130,7 +130,7 @@ int main() {
     inputFile.close();
 
     // Apply medium blur to the image
-    applyMediumBlur(image, radius);;
+    applyGaussianBlur(image, sigma);;
 
     // Write the blurred image to a new file
     std::ofstream outputFile(outputFilePath, std::ios::binary);
