@@ -11,3 +11,9 @@ gaussianBlur: gaussianBlur.cpp
 # Target to clean the generated executable files
 clean:
 	rm -f averageBlur gaussianBlur
+
+setup: 
+	nvcc main.cu -o main
+
+# to run: ./main inputImg/mink.bmp 426 240 5
+	
