@@ -12,8 +12,10 @@ gaussianBlur: gaussianBlur.cpp
 clean:
 	rm -f averageBlur gaussianBlur
 
-setup: 
-	nvcc main.cu -o main
+build: main.cu
+	nvcc main.cu -o main.exe
 
-# to run: ./main inputImg/mink.bmp 426 240 5
-	
+run: main.exe
+	./main.exe newmink426.bmp 426 240 5
+
+# convert to 24 bit is: convert "oldfile.bmp" -type truecolor "newfile.bmp"

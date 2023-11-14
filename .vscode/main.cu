@@ -4,6 +4,7 @@
 #include <chrono>
 #include <fstream>
 #include <inttypes.h>
+#include <iterator>
 
 // 240p : 426 width 240 height
 // 360p : 640 width 360 height
@@ -47,6 +48,7 @@ __host__ __device__ void setPixel(unsigned char * image, int width, int height, 
     image[0] = pixel->blue;
     image[1] = pixel->green;
     image[2] = pixel->red;
+    image[3] = pixel->reserved;
 }
 
 __host__ __device__ void getPixel(unsigned char * image, int width, int height, Pixel* pixel)
@@ -54,6 +56,7 @@ __host__ __device__ void getPixel(unsigned char * image, int width, int height, 
     pixel->blue = image[0];
     pixel->green = image[1];
     pixel->red = image[2];
+    pixel->reserved = image[3];
 }
 
 __global__ void averageBlur(unsigned char* image_in, unsigned char* image_out, int width, int height, int radius)
@@ -90,7 +93,8 @@ __global__ void averageBlur(unsigned char* image_in, unsigned char* image_out, i
     setPixel(image_out, x_dir, y_dir, &outputPixel);
 }
 
-void save_image(unsigned char * imagePixel, int width, int height, const char * filename, BMPHeader headerInfo)
+/*
+void save_image(unsigned char * imagePixel, int width, int height, const char * filename, BMPHeader * headerInfo)
 {
     // Write the blurred image to a new file
     std::ofstream outputFile(filename, std::ios::binary);
@@ -108,12 +112,7 @@ void save_image(unsigned char * imagePixel, int width, int height, const char * 
     {
         for (int i = 0; i < width; i++)
         {
-            outputPixels.push_back(imagePixel[(j * width) + i]);
-        }
-
-        // Add any needed padding to align rows to multiples of 4 bytes
-        for (int p = 0; p < (4 - (width * 3) % 4) % 4; ++p) {
-            outputPixels.push_back(0);
+            outputPixels.push_back(imagePixel[i]);
         }
     }
 
@@ -121,8 +120,10 @@ void save_image(unsigned char * imagePixel, int width, int height, const char * 
     // Close the output file
     outputFile.close();
 }
+*/
 
-const BMPHeader create_image(std::vector<unsigned char>& image_copy, int width, int height, const char* inputFilePath)
+/*
+void create_image(std::vector<unsigned char>& image_copy, int width, int height, const char* inputFilePath, BMPHeader * headerInfo)
 {
     std::ifstream inputFile(inputFilePath, std::ios::binary);
 
@@ -132,7 +133,6 @@ const BMPHeader create_image(std::vector<unsigned char>& image_copy, int width, 
     }
 
     // Read BMP header
-    BMPHeader headerInfo;
     inputFile.read(reinterpret_cast<char*>(&headerInfo), sizeof(BMPHeader));
 
     // Check if the file is a valid BMP file
@@ -144,15 +144,24 @@ const BMPHeader create_image(std::vector<unsigned char>& image_copy, int width, 
 
     // Move to the beginning of the pixel data
     inputFile.seekg(headerInfo.dataOffset, std::ios::beg);
-    int length = inputFile.tellg();
-    printf("Image creation complete at offset: %d\n", length);
-    
-    // TODO: THIS IS CAUSING A SEGFAULT
-    inputFile.read((char*)(&image_copy[0]), length);
+
+    // Read BMP pixel data
+    std::vector<std::vector<unsigned char>> image(headerInfo.width, std::vector<unsigned char>(headerInfo.height));
+
+    for (int i = 0; i < headerInfo.width; i++)
+    {
+        for (int j = 0; j < headerInfo.height; j++)
+        {
+            image_copy.push_back(image[i][j]);
+        }
+    }
+
+    printf("Image creation done\n");
 
     inputFile.close();
     return headerInfo;
 }
+*/
 
 int main(int argc, char * argv[]) 
 {   
@@ -167,15 +176,55 @@ int main(int argc, char * argv[])
 
     std::vector<unsigned char> input_image;
 
-    BMPHeader headerInfo = create_image(input_image, width, height, filename);
+    BMPHeader headerInfo; 
+
+    // -------------------------------------------------
+    // READ FILE INPUT 
+    std::ifstream inputFile(filename, std::ios::binary);
+
+    if (!inputFile)
+    {
+        throw std::invalid_argument("Error: Couldn't open the input BMP image file.");
+    }
+
+    // Read BMP header
+    inputFile.read(reinterpret_cast<char*>(&headerInfo), sizeof(BMPHeader));
+
+    // Check if the file is a valid BMP file
+    if (headerInfo.fileType != 0x4D42 || headerInfo.bitsPerPixel != 24)
+    {
+        inputFile.close();
+        throw std::invalid_argument("Error: Not a valid BMP file or unsupported color depth.");
+    }
+
+    // Move to the beginning of the pixel data
+    inputFile.seekg(headerInfo.dataOffset, std::ios::beg);
+
+    // Read BMP pixel data
+    std::vector<std::vector<unsigned char>> image(headerInfo.width, std::vector<unsigned char>(headerInfo.height));
+
+    for (int i = 0; i < headerInfo.width; i++)
+    {
+        for (int j = 0; j < headerInfo.height; j++)
+        {
+            input_image.push_back(image[i][j]);
+        }
+    }
+
+    printf("Image creation done\n");
+
+    inputFile.close();    
+    
+    // --------------------------------------------------------
+
     unsigned char* pic_in;
     unsigned char* pic_out; 
 
-    return 0;
     int numbytes = sizeof(unsigned char) * width * height * 4;
 
     cudaMalloc(&pic_in, numbytes);
     cudaMalloc(&pic_out, numbytes);
+    // destination, source, size, kind
     cudaMemcpy(pic_in, &input_image[0], numbytes, cudaMemcpyHostToDevice);
 
     dim3 threadsPerBlock(32, 32); // 1024 threads per block
@@ -184,11 +233,41 @@ int main(int argc, char * argv[])
     double start = (1000 * ((double)clock())) / (double)CLOCKS_PER_SEC;
     averageBlur << <numBlocks, threadsPerBlock >> > (pic_in, pic_out, width, height, radius);
     
-    //cudaDeviceSynchronize();
-    unsigned char output_image[numbytes];
-    cudaMemcpy(output_image, pic_out, numbytes, cudaMemcpyHostToDevice);
+    cudaDeviceSynchronize();
 
-    save_image(output_image, width, height, "filename.bmp", headerInfo);
+    unsigned char output_image[numbytes];
+    // destination, pitch, source, Woffset, Hoffset, width, height, kind
+
+    cudaMemcpy(output_image, pic_out, numbytes, cudaMemcpyDeviceToHost);
+
+    // --------------------------------------------------------
+    // WRITE OUTPUT 
+    // 
+    // Write the blurred image to a new file
+    printf("writing output\n");
+    std::ofstream outputFile("filenameoutput.bmp", std::ios::binary);
+
+    if (!outputFile) {
+        throw std::invalid_argument("Error: Couldn't create the output BMP image file.");
+    }
+
+    // Write BMP header to the output file
+    outputFile.write(reinterpret_cast<char*>(&headerInfo), sizeof(BMPHeader));
+
+        for (int j = 0; j < height; j++)
+        {
+            for (int i = 0; i < width; i++)
+            {
+                outputFile.write((const char*)&output_image, width);
+            }
+        }
+
+
+    // Close the output file
+    outputFile.close();
+
+    // --------------------------------------------------------
+
     double end = (1000 * ((double)clock())) / (double)CLOCKS_PER_SEC;
     double time_taken = end - start;
 
